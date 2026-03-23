@@ -1,24 +1,18 @@
 # 100x AI Tools Dashboard
 
-A "Product Hunt" style AI Tools discovery platform. This project features a FastAPI backend that scrapes and enriches AI tools using the Gemini API, alongside a React/Vite frontend for a fast, responsive, and dynamic user experience.
+A "Product Hunt" style AI Tools discovery platform. This project features a completely serverless FastAPI backend that dynamically retrieves and enriches AI tools using the latest **Google Gemini 1.5** AI models, alongside a React/Vite frontend for a staggeringly fast, responsive, and dynamic user experience.
 
 ## Features
 
-- **Live Search & Enrichment:** Search for AI tools using DuckDuckGo search, dynamically enriched with categories, pricing, and precise descriptions using the Google Gemini API.
-- **Database-First Architecture:** Uses an SQLite database (`tools_v2.db`) for robust caching, faster performance, and persistent data storage.
-- **Background Scraping:** Includes an admin API endpoint to trigger background jobs that scrape and discover new AI tools based on topics.
-- **Community-Driven:** Users can upvote tools they like. Tools can be sorted by highest rated or newest.
-- **Advanced Filtering:** Filter tools by category (Video, Image, Audio, Writing, Coding, Automation, Productivity, etc.) and pricing model (Free, Freemium, Paid).
+- **Databaseless Serverless Architecture:** Fully optimized for cloud functions and Vercel environments. All application state is held Ephemerally in high-speed Python memory architectures, completely avoiding `read-only filesystem` constraints or sluggish SQLite lockouts.
+- **Native AI Tool Discovery:** By default, live searches directly hook into Google Gemini API to instantly generate real, highly-relevant AI tool URLs, categories, and use cases.
+- **Resilient Hybrid Fallback:** If the Gemini API hits a rate-limit or errors out, the backend seamlessly swaps to a proxy DuckDuckGo web-scraper without dropping the user request, ensuring the search never returns an ugly 500 error.
+- **Community-Driven Pipeline:** Users can submit new AI Tools via URLs and instantly upvote tools they like. New submissions are instantly scraped and analyzed by AI to generate pristine descriptions.
 
 ## Tech Stack
 
-- **Backend:** Python, FastAPI, SQLite, DuckDuckGo Search (`ddgs`), Google GenAI SDK.
+- **Backend:** Python, FastAPI, DuckDuckGo Search (`ddgs`), Google GenAI SDK (`google-genai`).
 - **Frontend:** React 19, Vite, Vanilla CSS.
-
-## Project Structure
-
-- `/backend/` - Contains the FastAPI application, database initialization, and logic for scraping and enriching AI tools.
-- `/frontend/` - Contains the Vite-powered React UI.
 
 ## Getting Started
 
@@ -62,22 +56,22 @@ A "Product Hunt" style AI Tools discovery platform. This project features a Fast
 
 ## Configuration & API Key
 
-**IMPORTANT:** The project uses the Google Gemini API for content enrichment (auto-categorization, pricing inference, and description generation).
+**IMPORTANT:** The project heavily relies on the Google Gemini API for fast, dynamic search discovery and content generation.
 
-To configure the API key, create a `.env` file in the `backend/` directory with the following content:
+To configure the API key locally, create a `.env` file in the `backend/` directory:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-The application uses `python-dotenv` to securely load the key during runtime.
+*Note: When deploying to Vercel, simply add `GEMINI_API_KEY` to your Project Environment Variables in the Vercel dashboard instead.*
 
 ## API Endpoints
 
-- `GET /api/search?q={query}`: Live search for tools and auto-enrich them via LLM.
-- `GET /api/tools`: Fetch stored tools with optional filters (`search`, `category`, `pricing`) and sorting (`sort=highest_rated`).
-- `POST /api/tools/{tool_id}/upvote`: Increment the upvote count for a specific tool.
-- `POST /api/admin/scrape?topic={topic}`: Start a background job to scrape and discover new AI tools for a given topic.
+- `GET /api/search?q={query}`: Live search for tools powered natively by Gemini + intelligent robust HTTP fallbacks.
+- `POST /api/tools/submit`: Accepts a raw URL string, invisibly scrapes the `<title>` and `<meta>` tags of the website, queries Gemini to analyze the startup, and appends it to your live application state.
+- `GET /api/tools`: Fetch the universally stored tools from memory.
+- `POST /api/tools/{tool_id}/upvote`: Increment the upvote count instantly.
 
 ## License
 
