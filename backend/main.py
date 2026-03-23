@@ -2,7 +2,6 @@ from fastapi import FastAPI, Query, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ddgs import DDGS
-import sqlite3
 import logging
 import json
 import urllib.parse
@@ -30,29 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_FILE = "tools_v2.db"
+from datetime import datetime
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tools (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            url TEXT NOT NULL UNIQUE,
-            description TEXT,
-            category TEXT,
-            pricing TEXT,
-            favicon TEXT,
-            upvotes INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-# Initialize DB immediately
-init_db()
+tools_db = []
 
 def get_domain(url: str) -> str:
     try:
@@ -62,13 +41,8 @@ def get_domain(url: str) -> str:
         return "example.com"
 
 def enrich_and_save_tool(title: str, url: str, snippet: str):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
     # Check if exists
-    cursor.execute("SELECT id FROM tools WHERE url=?", (url,))
-    if cursor.fetchone():
-        conn.close()
+    if any(t['url'] == url for t in tools_db):
         return
 
     # Call Gemini to enrich
@@ -103,16 +77,17 @@ def enrich_and_save_tool(title: str, url: str, snippet: str):
 
     favicon = f"https://www.google.com/s2/favicons?domain={get_domain(url)}&sz=128"
     
-    try:
-        cursor.execute('''
-            INSERT INTO tools (title, url, description, category, pricing, favicon, upvotes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (title, url, description, category, pricing, favicon, 0))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass # URL might have been inserted concurrently
-    finally:
-        conn.close()
+    tools_db.append({
+        "id": len(tools_db) + 1,
+        "title": title,
+        "url": url,
+        "description": description,
+        "category": category,
+        "pricing": pricing,
+        "favicon": favicon,
+        "upvotes": 0,
+        "created_at": datetime.utcnow().isoformat()
+    })
 
 def run_scraping_job(topic: str):
     import time
@@ -183,8 +158,6 @@ async def live_search(q: str = Query(..., min_length=1)):
     except Exception as e:
         logging.error(f"Batch Gemini Failed: {e}")
 
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
     final_results = []
     
     for i, r in enumerate(raw_results):
@@ -201,29 +174,26 @@ async def live_search(q: str = Query(..., min_length=1)):
             pri = enriched_data[i].get("pricing", "Unknown")
             desc = enriched_data[i].get("description", desc)
         
-        upvotes = 0
-        tool_id = 0
-        try:
-            cursor.execute('''
-                INSERT INTO tools (title, url, description, category, pricing, favicon, upvotes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (title, url, desc, cat, pri, favicon, 0))
-            tool_id = cursor.lastrowid
-        except sqlite3.IntegrityError:
-            cursor.execute("SELECT id, upvotes FROM tools WHERE url=?", (url,))
-            row = cursor.fetchone()
-            if row:
-                tool_id = row[0]
-                upvotes = row[1]
-
-        final_results.append({
-            "id": tool_id, "title": title, "url": url,
-            "description": desc, "category": cat,
-            "pricing": pri, "favicon": favicon, "upvotes": upvotes
-        })
+        # Check if URL exists in tools_db
+        existing_tool = next((t for t in tools_db if t['url'] == url), None)
         
-    conn.commit()
-    conn.close()
+        if existing_tool:
+            final_results.append(existing_tool)
+        else:
+            new_tool = {
+                "id": len(tools_db) + 1,
+                "title": title,
+                "url": url,
+                "description": desc,
+                "category": cat,
+                "pricing": pri,
+                "favicon": favicon,
+                "upvotes": 0,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            tools_db.append(new_tool)
+            final_results.append(new_tool)
+            
     return final_results
 
 @app.get("/api/tools")
@@ -233,51 +203,32 @@ async def get_tools(
     pricing: Optional[str] = None,
     sort: Optional[str] = "highest_rated"
 ):
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    query = "SELECT * FROM tools WHERE 1=1"
-    params = []
+    filtered_tools = tools_db.copy()
     
     if search:
-        query += " AND (title LIKE ? OR description LIKE ?)"
-        search_term = f"%{search}%"
-        params.extend([search_term, search_term])
+        search_lower = search.lower()
+        filtered_tools = [t for t in filtered_tools if search_lower in str(t.get('title', '')).lower() or search_lower in str(t.get('description', '')).lower()]
         
     if category and category != "All":
-        query += " AND category = ?"
-        params.append(category)
+        filtered_tools = [t for t in filtered_tools if t['category'] == category]
         
     if pricing and pricing != "All":
-        query += " AND pricing = ?"
-        params.append(pricing)
+        filtered_tools = [t for t in filtered_tools if t['pricing'] == pricing]
         
     if sort == "highest_rated":
-        query += " ORDER BY upvotes DESC, created_at DESC"
+        filtered_tools.sort(key=lambda x: (x['upvotes'], x['created_at']), reverse=True)
     else:
-        query += " ORDER BY created_at DESC"
+        filtered_tools.sort(key=lambda x: x['created_at'], reverse=True)
         
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [dict(row) for row in rows]
+    return filtered_tools
 
 @app.post("/api/tools/{tool_id}/upvote")
 async def upvote_tool(tool_id: int):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE tools SET upvotes = upvotes + 1 WHERE id = ?", (tool_id,))
-        conn.commit()
-        
-        cursor.execute("SELECT upvotes FROM tools WHERE id = ?", (tool_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if row:
-            return {"message": "Upvoted", "upvotes": row[0]}
+        tool = next((t for t in tools_db if t['id'] == tool_id), None)
+        if tool:
+            tool['upvotes'] = int(tool.get('upvotes', 0)) + 1
+            return {"message": "Upvoted", "upvotes": tool['upvotes']}
         raise HTTPException(status_code=404, detail="Tool not found")
     except Exception as e:
         logging.error(f"Upvote failed: {e}")
