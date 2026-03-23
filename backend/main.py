@@ -59,7 +59,7 @@ def enrich_and_save_tool(title: str, url: str, snippet: str):
     """
     try:
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.0-flash',
             contents=prompt
         )
         # Strip potential markdown blocks if LLM adds them despite instructions
@@ -149,8 +149,23 @@ async def live_search(q: str = Query(..., min_length=1)):
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         enriched_data = json.loads(clean_json)
     except Exception as e:
-        logging.error(f"Gemini Search Failed: {e}")
-        raise HTTPException(status_code=500, detail="AI processing failed. Please try again.")
+        logging.error(f"Gemini Search Failed ({e}). Falling back to DuckDuckGo.")
+        enriched_data = []
+        try:
+            with DDGS() as ddgs:
+                search_query = f"{q} official site AI tool software -blog -listicle"
+                raw_results = list(ddgs.text(search_query, max_results=6))
+                for r in raw_results:
+                    enriched_data.append({
+                        "title": r.get('title', 'Unknown Tool'),
+                        "url": r.get('href', ''),
+                        "description": r.get('body', ''),
+                        "category": "Other",
+                        "pricing": "Unknown"
+                    })
+        except Exception as ddg_err:
+            logging.error(f"DDGS Fallback Failed: {ddg_err}")
+            raise HTTPException(status_code=500, detail="Search engine failed on both AI and Web. Please try again.")
 
     if not enriched_data:
         return []
