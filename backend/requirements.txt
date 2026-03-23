@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 ddgs
-google-generativeai
+google-genai
 python-dotenv
 requests
 beautifulsoup4
