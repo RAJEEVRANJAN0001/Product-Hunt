@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 function App() {
   const [tools, setTools] = useState([])
   const [loading, setLoading] = useState(false)
+  const [searchError, setSearchError] = useState('')
   
   // Filters and Sorting
   const [searchQuery, setSearchQuery] = useState('')
@@ -52,13 +53,14 @@ function App() {
       return
     }
     setLoading(true)
+    setSearchError('')
     try {
       const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(searchQuery)}`)
-      if (!res.ok) throw new Error('Search failed')
       const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || 'Search API failed or is rate limited')
       setTools(data)
     } catch (err) {
-      console.error(err)
+      setSearchError(err.message)
     } finally {
       setLoading(false)
     }
@@ -133,6 +135,10 @@ function App() {
           {loading ? (
             <div className="loader">
               <div className="spinner"></div>
+            </div>
+          ) : searchError ? (
+            <div className="status-msg" style={{color: '#a855f7'}}>
+              <h3>Uh oh! {searchError}</h3>
             </div>
           ) : tools.length === 0 ? (
             <div className="status-msg">

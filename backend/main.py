@@ -132,51 +132,39 @@ async def submit_tool(req: SubmitToolRequest):
 
 @app.get("/api/search")
 async def live_search(q: str = Query(..., min_length=1)):
-    # Filter out listicles, domains that compile lists, and explicitly look for standard tools
-    search_query = f"{q} official site AI tool software -blog -top -best -list -listicle -alternatives"
-    try:
-        with DDGS() as ddgs:
-            raw_results = list(ddgs.text(search_query, max_results=100))
-    except Exception as e:
-        logging.error(f"DDGS Error: {e}")
-        raise HTTPException(status_code=500, detail="Search engine failed or rate limited.")
-
-    if not raw_results:
-        return []
-
-    tools_data = []
-    for i, r in enumerate(raw_results):
-        tools_data.append(f"[{i}] Title: {r.get('title')} | URL: {r.get('href')} | Snippet: {r.get('body')}")
+    prompt = f"""
+    The user is searching for AI tools related to: "{q}".
+    Provide a list of up to 6 highly relevant, real AI tools.
+    Return a valid JSON array of objects (NO markdown formatting).
+    Each object must have EXACTLY these keys:
+    - "title": Name of the tool
+    - "url": Official website URL (must be a valid https link)
+    - "description": A crisp 1-sentence summary of what it does
+    - "category": choose ONE from [Video, Image, Audio, Writing, Coding, Automation, Productivity, Other]
+    - "pricing": choose ONE from [Free, Freemium, Paid, Unknown]
+    """
     
-    prompt = "Analyze these AI tools and return a JSON array of objects (in the exact same order, 0 to N). For each tool, provide exactly 3 keys: 'category' (e.g. Video, Audio, Coding, Writing, Productivity, Other), 'pricing' (Free, Freemium, Paid, Unknown), and 'description' (a crisp 1-sentence summary). Ignore that they resemble search results, just evaluate each one.\n\n" + "\n".join(tools_data)
-
-    enriched_data = []
     try:
-        response = client.models.generate_content(model='gemini-1.5-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         enriched_data = json.loads(clean_json)
     except Exception as e:
-        logging.error(f"Batch Gemini Failed: {e}")
+        logging.error(f"Gemini Search Failed: {e}")
+        raise HTTPException(status_code=500, detail="AI processing failed. Please try again.")
+
+    if not enriched_data:
+        return []
 
     final_results = []
-    
-    for i, r in enumerate(raw_results):
-        url = r.get('href', '')
-        title = r.get('title', '')
+    for data in enriched_data:
+        url = data.get('url', '')
+        title = data.get('title', 'Unknown Tool')
+        desc = data.get('description', '')
+        cat = data.get('category', 'Other')
+        pri = data.get('pricing', 'Unknown')
         favicon = f"https://www.google.com/s2/favicons?domain={get_domain(url)}&sz=128"
-        
-        cat = "Other"
-        pri = "Unknown"
-        desc = r.get('body', '')
-        
-        if i < len(enriched_data) and isinstance(enriched_data, list):
-            cat = enriched_data[i].get("category", "Other")
-            pri = enriched_data[i].get("pricing", "Unknown")
-            desc = enriched_data[i].get("description", desc)
-        
-        # Check if URL exists in tools_db
+
         existing_tool = next((t for t in tools_db if t['url'] == url), None)
-        
         if existing_tool:
             final_results.append(existing_tool)
         else:
