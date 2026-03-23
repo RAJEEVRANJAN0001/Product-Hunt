@@ -59,7 +59,7 @@ def enrich_and_save_tool(title: str, url: str, snippet: str):
     """
     try:
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=prompt
         )
         # Strip potential markdown blocks if LLM adds them despite instructions
@@ -145,7 +145,7 @@ async def live_search(q: str = Query(..., min_length=1)):
     """
     
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-1.5-flash', contents=prompt)
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         enriched_data = json.loads(clean_json)
     except Exception as e:
